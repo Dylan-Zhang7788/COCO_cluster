@@ -14,16 +14,15 @@ def iou(box, clusters):
     返回：ground truth和每个Anchor框的交并比。
     """
     global number_zero
-
-    x = np.minimum(clusters[:, 0], box[0])
-    y = np.minimum(clusters[:, 1], box[1])
+    x = np.minimum(clusters[0], box[0])
+    y = np.minimum(clusters[1], box[1])
     if np.count_nonzero(x == 0) > 0 or np.count_nonzero(y == 0) > 0:
         number_zero += 1
         iou_=0
     else:
         intersection = x * y
         box_area = box[0] * box[1]
-        cluster_area = clusters[:, 0] * clusters[:, 1]
+        cluster_area = clusters[0] * clusters[1]
         iou_ = intersection / (box_area + cluster_area - intersection)
     return iou_
 
@@ -141,26 +140,64 @@ def load_dataset(path, types='voc'):
                     ann_width = bbox[2]
                     ann_height = bbox[3]
 
-                    # 偏移量
-                    ann_width = np.float64(ann_width / width)
-                    ann_height = np.float64(ann_height / height)
                     dataset.append([ann_width, ann_height])
                 else:
                     raise ValueError("coco no bbox -- wrong!!!")
     return np.array(dataset)
 
+def is_cared_level(boxes,level_scope):
+    rows = boxes.shape[0]
+    number_level=len(level_scope)
+    box_list=[]
+    for num in range(number_level):
+        box_list.append([])
+    for row in range(rows):
+        x = boxes[row][0]
+        y = boxes[row][1]
+        crit = (x**2+y**2)**0.5/2
+        is_cared_in_the_level = (crit >= level_scope[:, 0]) & (crit <= level_scope[:, 1])
+        cared_level=np.nonzero(is_cared_in_the_level)[0]
+        for level in cared_level:
+            box_list[level].append(boxes[row])
+    return  box_list
 
+def compute_area(box_lists):
+    anchor_list=[]
+    for i,box_list in enumerate(box_lists):
+        x_sum = 0
+        y_sum = 0
+        for j,box in enumerate(box_list):
+            x_sum += box[0]
+            y_sum += box[1]
+        if len(box_list)==0:
+            print("level {} has no object".format(i))
+            anchor_list.append([0,0])
+        else:
+            print("level {} has {} objecta".format(i,len(box_list)))
+            x_avg = x_sum/len(box_list)
+            y_avg = y_sum/len(box_list)
+            anchor_list.append([x_avg,y_avg])
+    return anchor_list
+def compute_iou(box_lists,anchor_list):
+    for i, anchor in enumerate(anchor_list):
+        IOU=0
+        for j,box in enumerate(box_lists[i]):
+            IOU += iou(box,anchor)
+        if len(box_lists[i]) != 0:
+            IOU = IOU/len(box_lists[i])
+        else :IOU = 0 
+        print("IOU of the {}th level is {}".format(i,IOU))
+            
+    return 0
 if __name__ == '__main__':
     annFile = '/home/zhangdi/zhangdi_ws/CenterNet2/datasets/coco/annotations/instances_train2017.json'
     clusters = 5
     Inputdim = 800   # image shape
+    level_scope= [[0, 80], [64, 160], [128, 320], [256, 640], [512, 10000000]]
+    level_scope=np.asarray(level_scope)
+
     data = load_dataset(path=annFile, types='coco')
-    out = Iou_Kmeans(data, k=clusters)
-
-    anchor = np.array(out) * Inputdim
-    print("Boxes: {} ".format(anchor))
-    print("Accuracy: {:.2f}%".format(avg_iou(data, out) * 100))
-
-    final_anchors = np.around(out[:, 0] / out[:, 1], decimals=2).tolist()
-    print("Before Sort Ratios:\n {}".format(final_anchors))
-    print("After Sort Ratios:\n {}".format(sorted(final_anchors)))
+    box_lists = is_cared_level(data,level_scope)
+    anchor_list = compute_area(box_lists)
+    compute_iou(box_lists,anchor_list)
+    print("Anchors: {} ".format(anchor_list))
